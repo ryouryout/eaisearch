@@ -403,23 +403,25 @@ async function processSearchQueue() {
                 completedSearches++;
                 updateProgress(completedSearches, totalSearches);
                 
+                // エラーの詳細なログ
+                let errorMessage = error.message || 'Unknown error occurred';
+                
                 // APIキーに関連するエラーの場合
-                if (error.message && (
-                    error.message.includes('API key') || 
-                    error.message.includes('APIキー') || 
-                    error.message.includes('401') || 
-                    error.message.includes('認証')
-                )) {
+                if (errorMessage.includes('API key') || 
+                    errorMessage.includes('APIキー') || 
+                    errorMessage.includes('401') || 
+                    errorMessage.includes('認証')) {
                     addLogEntry(`エラー: APIキーが無効または期限切れの可能性があります。APIキー設定を確認してください。`, 'error');
-                } else if (error.message && error.message.includes('タイムアウト')) {
+                } else if (errorMessage.includes('タイムアウト')) {
                     addLogEntry(`エラー: 「${companyName}」の検索中にタイムアウトが発生しました。サーバーの応答が遅いか、一時的な問題が発生している可能性があります。`, 'error');
                 } else {
                     // その他のエラー
-                    addLogEntry(`エラー: 「${companyName}」の検索に失敗しました: ${error.message}`, 'error');
+                    addLogEntry(`エラー: 「${companyName}」の検索に失敗しました: ${errorMessage}`, 'error');
                 }
                 
-                if (companyName === 'エクサウィザーズ' || companyName.includes('エクサ')) {
-                    addLogEntry(`ヒント: 「${companyName}」のような特定の会社名では、APIの処理に問題が発生する場合があります。会社名を正式名称（例：株式会社エクサウィザーズ）で試してみてください。`, 'warning');
+                // 特定の会社名に関する追加情報
+                if (companyName === 'エクサウィザーズ' || companyName.includes('エクサ') || companyName.includes('Exawizards') || companyName.includes('exawizards')) {
+                    addLogEntry(`ヒント: 「${companyName}」のような特定の会社名では、APIの処理に問題が発生する場合があります。会社名を正式名称（例：株式会社エクサウィザーズ）で試すか、別の会社名を使用してください。`, 'warning');
                 }
                 
                 // エラーでも結果配列に追加（検索失敗を明示）
@@ -571,7 +573,7 @@ async function extractCompanyInfo(companyName, searchResults) {
     try {
         addLogEntry(`「${companyName}」の情報をClaudeで分析中...`);
         
-        // エクサウィザーズの場合は特別な処理
+        // エクサウィザーズの場合は特別な処理（タイムアウト時間調整のみ）
         const isExawizards = companyName === 'エクサウィザーズ' || 
                             companyName.includes('エクサ') || 
                             companyName.includes('Exawizards') ||
@@ -712,20 +714,6 @@ ${searchResultsText}
             const errorMessage = 'Claudeの応答からJSONを抽出できませんでした。';
             addLogEntry(errorMessage, 'error');
             addLogEntry(`Claude応答: ${content.substring(0, 300)}...`, 'warning');
-            
-            // エクサウィザーズの場合のデフォルト値
-            if (isExawizards) {
-                addLogEntry(`「${companyName}」の情報を部分的に取得します。`, 'warning');
-                return {
-                    "postalCode": "150-0013",
-                    "prefecture": "東京都",
-                    "city": "渋谷区",
-                    "address": "恵比寿1丁目19番19号 恵比寿ビジネスタワー10F",
-                    "representativeTitle": "代表取締役社長",
-                    "representativeName": "春田 真"
-                };
-            }
-            
             throw new Error(errorMessage);
         }
         
@@ -760,20 +748,6 @@ ${searchResultsText}
                 return parsedFixedJson;
             } catch (fixError) {
                 addLogEntry(`JSON修正にも失敗しました: ${fixError.message}`, 'error');
-                
-                // エクサウィザーズの場合のデフォルト値
-                if (isExawizards) {
-                    addLogEntry(`「${companyName}」の情報をデフォルト値で設定します。`, 'warning');
-                    return {
-                        "postalCode": "150-0013",
-                        "prefecture": "東京都",
-                        "city": "渋谷区",
-                        "address": "恵比寿1丁目19番19号 恵比寿ビジネスタワー10F",
-                        "representativeTitle": "代表取締役社長",
-                        "representativeName": "春田 真"
-                    };
-                }
-                
                 throw new Error('JSONの解析に失敗しました。Claude APIの応答が不正な形式です。');
             }
         }
