@@ -1,7 +1,7 @@
 // 定数とグローバル変数
-const GOOGLE_API_KEY = 'YOUR_GOOGLE_API_KEY'; // 実際の使用時には設定してください
-const GOOGLE_SEARCH_ENGINE_ID = 'YOUR_SEARCH_ENGINE_ID'; // 実際の使用時には設定してください
-const CLAUDE_API_KEY = 'YOUR_CLAUDE_API_KEY'; // 実際の使用時には設定してください
+let GOOGLE_API_KEY = localStorage.getItem('google_api_key') || ''; 
+let GOOGLE_SEARCH_ENGINE_ID = localStorage.getItem('google_search_engine_id') || '';
+let CLAUDE_API_KEY = localStorage.getItem('claude_api_key') || '';
 const CLAUDE_MODEL = 'claude-3-7-sonnet-20250219';
 
 // 同時に実行できる検索数（調整可能）
@@ -35,6 +35,9 @@ let isSearching = false;
 
 // イベントリスナー
 document.addEventListener('DOMContentLoaded', () => {
+    // APIキー設定ボタンを作成
+    createApiKeySettingsButton();
+    
     // 検索ボタンのイベントリスナー
     searchBtn.addEventListener('click', startSearch);
     
@@ -51,8 +54,265 @@ document.addEventListener('DOMContentLoaded', () => {
     copyTableBtn.addEventListener('click', copyTableToClipboard);
 });
 
+// APIキー設定ボタンを作成する関数
+function createApiKeySettingsButton() {
+    // 設定ボタンの作成
+    const settingsButton = document.createElement('button');
+    settingsButton.innerHTML = '<i class="fas fa-cog"></i> APIキー設定';
+    settingsButton.className = 'secondary-btn api-settings-btn';
+    settingsButton.style.marginLeft = 'auto';
+    
+    // 検索セクションのヘッダーに追加
+    const searchContainer = document.querySelector('.search-container');
+    const headerDiv = document.createElement('div');
+    headerDiv.className = 'search-header';
+    headerDiv.style.display = 'flex';
+    headerDiv.style.justifyContent = 'space-between';
+    headerDiv.style.alignItems = 'center';
+    headerDiv.style.marginBottom = '15px';
+    
+    const title = document.createElement('h3');
+    title.textContent = '会社情報検索';
+    title.style.margin = '0';
+    
+    headerDiv.appendChild(title);
+    headerDiv.appendChild(settingsButton);
+    
+    // 検索コンテナの先頭に挿入
+    searchContainer.insertBefore(headerDiv, searchContainer.firstChild);
+    
+    // 設定ボタンのイベントリスナー
+    settingsButton.addEventListener('click', showApiKeySettings);
+    
+    // APIキーが設定されていない場合は警告を表示
+    checkApiKeys();
+}
+
+// APIキーが設定されているか確認する関数
+function checkApiKeys() {
+    if (!GOOGLE_API_KEY || !GOOGLE_SEARCH_ENGINE_ID || !CLAUDE_API_KEY) {
+        const warningDiv = document.createElement('div');
+        warningDiv.className = 'api-key-warning';
+        warningDiv.style.backgroundColor = '#fff3cd';
+        warningDiv.style.color = '#856404';
+        warningDiv.style.padding = '10px 15px';
+        warningDiv.style.borderRadius = '5px';
+        warningDiv.style.marginBottom = '15px';
+        warningDiv.style.border = '1px solid #ffeeba';
+        warningDiv.innerHTML = '<strong>⚠️ APIキーが設定されていません。</strong> 「APIキー設定」ボタンをクリックして、必要なAPIキーを設定してください。';
+        
+        // 検索セクションの先頭に挿入
+        const searchContainer = document.querySelector('.search-container');
+        const firstElement = searchContainer.querySelector('.search-header');
+        searchContainer.insertBefore(warningDiv, firstElement.nextSibling);
+        
+        // 検索ボタンを無効化
+        searchBtn.disabled = true;
+        searchBtn.title = 'APIキーを設定してください';
+    } else {
+        // 既存の警告があれば削除
+        const existingWarning = document.querySelector('.api-key-warning');
+        if (existingWarning) {
+            existingWarning.remove();
+        }
+        
+        // 検索ボタンを有効化
+        searchBtn.disabled = false;
+        searchBtn.title = '';
+    }
+}
+
+// APIキー設定ダイアログを表示する関数
+function showApiKeySettings() {
+    // ダイアログの作成
+    const dialog = document.createElement('div');
+    dialog.className = 'api-settings-dialog';
+    dialog.style.position = 'fixed';
+    dialog.style.top = '0';
+    dialog.style.left = '0';
+    dialog.style.width = '100%';
+    dialog.style.height = '100%';
+    dialog.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+    dialog.style.display = 'flex';
+    dialog.style.justifyContent = 'center';
+    dialog.style.alignItems = 'center';
+    dialog.style.zIndex = '1000';
+    
+    // ダイアログの内容
+    const dialogContent = document.createElement('div');
+    dialogContent.className = 'api-settings-content';
+    dialogContent.style.backgroundColor = '#fff';
+    dialogContent.style.padding = '20px';
+    dialogContent.style.borderRadius = '10px';
+    dialogContent.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.2)';
+    dialogContent.style.width = '90%';
+    dialogContent.style.maxWidth = '500px';
+    
+    // ダイアログのヘッダー
+    const dialogHeader = document.createElement('div');
+    dialogHeader.style.display = 'flex';
+    dialogHeader.style.justifyContent = 'space-between';
+    dialogHeader.style.alignItems = 'center';
+    dialogHeader.style.marginBottom = '20px';
+    
+    const dialogTitle = document.createElement('h3');
+    dialogTitle.textContent = 'APIキー設定';
+    dialogTitle.style.margin = '0';
+    
+    const closeButton = document.createElement('button');
+    closeButton.innerHTML = '&times;';
+    closeButton.style.background = 'none';
+    closeButton.style.border = 'none';
+    closeButton.style.fontSize = '24px';
+    closeButton.style.cursor = 'pointer';
+    
+    dialogHeader.appendChild(dialogTitle);
+    dialogHeader.appendChild(closeButton);
+    
+    // フォーム
+    const form = document.createElement('form');
+    form.style.display = 'flex';
+    form.style.flexDirection = 'column';
+    form.style.gap = '15px';
+    
+    // Google API Key
+    const googleApiKeyGroup = document.createElement('div');
+    googleApiKeyGroup.className = 'form-group';
+    
+    const googleApiKeyLabel = document.createElement('label');
+    googleApiKeyLabel.htmlFor = 'google-api-key';
+    googleApiKeyLabel.textContent = 'Google API Key:';
+    googleApiKeyLabel.style.display = 'block';
+    googleApiKeyLabel.style.marginBottom = '5px';
+    googleApiKeyLabel.style.fontWeight = 'bold';
+    
+    const googleApiKeyInput = document.createElement('input');
+    googleApiKeyInput.type = 'text';
+    googleApiKeyInput.id = 'google-api-key';
+    googleApiKeyInput.value = GOOGLE_API_KEY;
+    googleApiKeyInput.style.width = '100%';
+    googleApiKeyInput.style.padding = '8px';
+    googleApiKeyInput.style.border = '1px solid #ddd';
+    googleApiKeyInput.style.borderRadius = '4px';
+    
+    googleApiKeyGroup.appendChild(googleApiKeyLabel);
+    googleApiKeyGroup.appendChild(googleApiKeyInput);
+    
+    // Google Search Engine ID
+    const googleSearchEngineIdGroup = document.createElement('div');
+    googleSearchEngineIdGroup.className = 'form-group';
+    
+    const googleSearchEngineIdLabel = document.createElement('label');
+    googleSearchEngineIdLabel.htmlFor = 'google-search-engine-id';
+    googleSearchEngineIdLabel.textContent = 'Google Search Engine ID:';
+    googleSearchEngineIdLabel.style.display = 'block';
+    googleSearchEngineIdLabel.style.marginBottom = '5px';
+    googleSearchEngineIdLabel.style.fontWeight = 'bold';
+    
+    const googleSearchEngineIdInput = document.createElement('input');
+    googleSearchEngineIdInput.type = 'text';
+    googleSearchEngineIdInput.id = 'google-search-engine-id';
+    googleSearchEngineIdInput.value = GOOGLE_SEARCH_ENGINE_ID;
+    googleSearchEngineIdInput.style.width = '100%';
+    googleSearchEngineIdInput.style.padding = '8px';
+    googleSearchEngineIdInput.style.border = '1px solid #ddd';
+    googleSearchEngineIdInput.style.borderRadius = '4px';
+    
+    googleSearchEngineIdGroup.appendChild(googleSearchEngineIdLabel);
+    googleSearchEngineIdGroup.appendChild(googleSearchEngineIdInput);
+    
+    // Claude API Key
+    const claudeApiKeyGroup = document.createElement('div');
+    claudeApiKeyGroup.className = 'form-group';
+    
+    const claudeApiKeyLabel = document.createElement('label');
+    claudeApiKeyLabel.htmlFor = 'claude-api-key';
+    claudeApiKeyLabel.textContent = 'Claude API Key:';
+    claudeApiKeyLabel.style.display = 'block';
+    claudeApiKeyLabel.style.marginBottom = '5px';
+    claudeApiKeyLabel.style.fontWeight = 'bold';
+    
+    const claudeApiKeyInput = document.createElement('input');
+    claudeApiKeyInput.type = 'text';
+    claudeApiKeyInput.id = 'claude-api-key';
+    claudeApiKeyInput.value = CLAUDE_API_KEY;
+    claudeApiKeyInput.style.width = '100%';
+    claudeApiKeyInput.style.padding = '8px';
+    claudeApiKeyInput.style.border = '1px solid #ddd';
+    claudeApiKeyInput.style.borderRadius = '4px';
+    
+    claudeApiKeyGroup.appendChild(claudeApiKeyLabel);
+    claudeApiKeyGroup.appendChild(claudeApiKeyInput);
+    
+    // 説明テキスト
+    const helpText = document.createElement('p');
+    helpText.style.fontSize = '0.9rem';
+    helpText.style.color = '#666';
+    helpText.style.marginTop = '10px';
+    helpText.innerHTML = 'これらのAPIキーはあなたのブラウザのローカルストレージに保存され、サーバーには送信されません。';
+    
+    // 保存ボタン
+    const saveButton = document.createElement('button');
+    saveButton.type = 'submit';
+    saveButton.textContent = '保存';
+    saveButton.className = 'primary-btn';
+    saveButton.style.marginTop = '15px';
+    
+    // フォームに要素を追加
+    form.appendChild(googleApiKeyGroup);
+    form.appendChild(googleSearchEngineIdGroup);
+    form.appendChild(claudeApiKeyGroup);
+    form.appendChild(helpText);
+    form.appendChild(saveButton);
+    
+    // ダイアログにヘッダーとフォームを追加
+    dialogContent.appendChild(dialogHeader);
+    dialogContent.appendChild(form);
+    
+    // ダイアログにコンテンツを追加
+    dialog.appendChild(dialogContent);
+    
+    // ダイアログをドキュメントに追加
+    document.body.appendChild(dialog);
+    
+    // イベントリスナー
+    closeButton.addEventListener('click', () => {
+        document.body.removeChild(dialog);
+    });
+    
+    form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        
+        // 入力値を取得
+        GOOGLE_API_KEY = googleApiKeyInput.value.trim();
+        GOOGLE_SEARCH_ENGINE_ID = googleSearchEngineIdInput.value.trim();
+        CLAUDE_API_KEY = claudeApiKeyInput.value.trim();
+        
+        // ローカルストレージに保存
+        localStorage.setItem('google_api_key', GOOGLE_API_KEY);
+        localStorage.setItem('google_search_engine_id', GOOGLE_SEARCH_ENGINE_ID);
+        localStorage.setItem('claude_api_key', CLAUDE_API_KEY);
+        
+        // APIキーのチェック
+        checkApiKeys();
+        
+        // ダイアログを閉じる
+        document.body.removeChild(dialog);
+        
+        // 成功メッセージ
+        addLogEntry('APIキー設定が保存されました。', 'success');
+    });
+}
+
 // 検索を開始する関数
 async function startSearch() {
+    // APIキーが設定されていない場合は設定ダイアログを表示
+    if (!GOOGLE_API_KEY || !GOOGLE_SEARCH_ENGINE_ID || !CLAUDE_API_KEY) {
+        addLogEntry('エラー: APIキーが設定されていません。', 'error');
+        showApiKeySettings();
+        return;
+    }
+    
     // すでに検索中の場合は何もしない
     if (isSearching) return;
     
