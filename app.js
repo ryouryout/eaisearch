@@ -385,26 +385,44 @@ async function processSearchQueue() {
                 completedSearches++;
                 updateProgress(completedSearches, totalSearches);
                 
-                addLogEntry(`「${companyName}」の検索が完了しました。（${completedSearches}/${totalSearches}）`);
+                addLogEntry(`「${companyName}」の検索が完了しました。（${completedSearches}/${totalSearches}）`, 'success');
             })
             .catch(error => {
                 // エラーが発生した場合
                 completedSearches++;
                 updateProgress(completedSearches, totalSearches);
                 
-                // エラーログを表示
-                addLogEntry(`エラー: 「${companyName}」の検索中にエラーが発生しました: ${error.message}`, 'error');
+                // APIキーに関連するエラーの場合
+                if (error.message && (
+                    error.message.includes('API key') || 
+                    error.message.includes('APIキー') || 
+                    error.message.includes('401') || 
+                    error.message.includes('認証')
+                )) {
+                    addLogEntry(`エラー: APIキーが無効または期限切れの可能性があります。APIキー設定を確認してください。`, 'error');
+                } else if (error.message && error.message.includes('タイムアウト')) {
+                    addLogEntry(`エラー: 「${companyName}」の検索中にタイムアウトが発生しました。サーバーの応答が遅いか、一時的な問題が発生している可能性があります。`, 'error');
+                } else {
+                    // その他のエラー
+                    addLogEntry(`エラー: 「${companyName}」の検索に失敗しました: ${error.message}`, 'error');
+                }
                 
-                // エラーでも結果配列に追加（空データ）
-                searchResults.push({
+                if (companyName === 'エクサウィザーズ' || companyName.includes('エクサ')) {
+                    addLogEntry(`ヒント: 「${companyName}」のような特定の会社名では、APIの処理に問題が発生する場合があります。会社名を正式名称（例：株式会社エクサウィザーズ）で試してみてください。`, 'warning');
+                }
+                
+                // エラーでも結果配列に追加（検索失敗を明示）
+                const emptyResult = {
                     companyName: companyName,
-                    postalCode: '',
-                    prefecture: '',
-                    city: '',
-                    address: '',
-                    representativeTitle: '',
-                    representativeName: ''
-                });
+                    postalCode: '検索失敗',
+                    prefecture: '検索失敗',
+                    city: '検索失敗',
+                    address: '検索失敗',
+                    representativeTitle: '検索失敗',
+                    representativeName: '検索失敗'
+                };
+                searchResults.push(emptyResult);
+                addResultRow(emptyResult);
             })
             .finally(() => {
                 // アクティブな検索数を減らす
@@ -443,7 +461,7 @@ async function searchCompanyInfo(companyName, retryCount = 0) {
                     addLogEntry(`「${searchTerm}」での検索に成功しました。`);
                 }
             } catch (error) {
-                addLogEntry(`「${searchTerm}」での検索中にエラーが発生しました。次の検索ワードを試行します...`, 'warning');
+                addLogEntry(`「${searchTerm}」での検索中にエラーが発生しました: ${error.message}`, 'warning');
             }
         }
         
@@ -452,22 +470,28 @@ async function searchCompanyInfo(companyName, retryCount = 0) {
         }
         
         // ステップ2: Claude APIを使用して会社情報を抽出
-        const companyInfo = await extractCompanyInfo(companyName, searchResults);
-        
-        // 結果を返す
-        return {
-            companyName: companyName,
-            postalCode: companyInfo.postalCode || '',
-            prefecture: companyInfo.prefecture || '',
-            city: companyInfo.city || '',
-            address: companyInfo.address || '',
-            representativeTitle: companyInfo.representativeTitle || '',
-            representativeName: companyInfo.representativeName || ''
-        };
+        try {
+            const companyInfo = await extractCompanyInfo(companyName, searchResults);
+            
+            // 結果を返す
+            return {
+                companyName: companyName,
+                postalCode: companyInfo.postalCode || '',
+                prefecture: companyInfo.prefecture || '',
+                city: companyInfo.city || '',
+                address: companyInfo.address || '',
+                representativeTitle: companyInfo.representativeTitle || '',
+                representativeName: companyInfo.representativeName || ''
+            };
+        } catch (error) {
+            addLogEntry(`「${companyName}」の情報抽出中にエラーが発生しました: ${error.message}`, 'error');
+            throw error;
+        }
     } catch (error) {
         // リトライ回数が上限に達していない場合はリトライ
         if (retryCount < MAX_RETRY_COUNT) {
             addLogEntry(`「${companyName}」の検索に失敗しました。リトライします... (${retryCount + 1}/${MAX_RETRY_COUNT})`, 'warning');
+            await new Promise(resolve => setTimeout(resolve, 2000)); // 2秒待機してからリトライ
             return searchCompanyInfo(companyName, retryCount + 1);
         } else {
             throw error;
@@ -554,25 +578,65 @@ ${searchResultsText}
 - 分析には入手可能な情報のみを使用してください。不明な情報を推測しないでください。`;
 
         // Claude APIにリクエストを送信
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': CLAUDE_API_KEY,
-                'anthropic-version': '2023-06-01'
+        addLogEntry(`Claude APIにリクエストを送信中...`);
+        
+        // タイムアウト付きのfetch関数を作成
+        const fetchWithTimeout = async (url, options, timeout = 30000) => {
+            const controller = new AbortController();
+            const id = setTimeout(() => controller.abort(), timeout);
+            
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    signal: controller.signal
+                });
+                clearTimeout(id);
+                return response;
+            } catch (error) {
+                clearTimeout(id);
+                if (error.name === 'AbortError') {
+                    throw new Error(`リクエストがタイムアウトしました (${timeout}ms)`);
+                }
+                throw error;
+            }
+        };
+        
+        // タイムアウト30秒でAPI呼び出し
+        const response = await fetchWithTimeout(
+            'https://api.anthropic.com/v1/messages', 
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': CLAUDE_API_KEY,
+                    'anthropic-version': '2023-06-01'
+                },
+                body: JSON.stringify({
+                    model: CLAUDE_MODEL,
+                    max_tokens: 1000,
+                    messages: [
+                        { role: 'user', content: prompt }
+                    ]
+                })
             },
-            body: JSON.stringify({
-                model: CLAUDE_MODEL,
-                max_tokens: 1000,
-                messages: [
-                    { role: 'user', content: prompt }
-                ]
-            })
-        });
+            30000 // 30秒タイムアウト
+        );
 
         if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Claude APIエラー: ${response.status} ${response.statusText} - ${errorText}`);
+            const errorData = await response.text();
+            let errorMessage = `Claude APIエラー: ${response.status} ${response.statusText}`;
+            try {
+                // JSONとしてパースできるかチェック
+                const errorJson = JSON.parse(errorData);
+                if (errorJson.error) {
+                    errorMessage += ` - ${errorJson.error.message || errorJson.error}`;
+                }
+            } catch (e) {
+                // テキストとして表示
+                errorMessage += ` - ${errorData.substring(0, 100)}`;
+            }
+            addLogEntry(errorMessage, 'error');
+            throw new Error(errorMessage);
         }
 
         const data = await response.json();
@@ -582,27 +646,27 @@ ${searchResultsText}
         const jsonMatch = content.match(/\{[\s\S]*\}/);
         
         if (!jsonMatch) {
-            throw new Error('Claudeの応答からJSONを抽出できませんでした。');
+            const errorMessage = 'Claudeの応答からJSONを抽出できませんでした。';
+            addLogEntry(errorMessage, 'error');
+            addLogEntry(`Claude応答: ${content.substring(0, 100)}...`, 'warning');
+            throw new Error(errorMessage);
         }
         
         const extractedJson = jsonMatch[0];
         addLogEntry(`「${companyName}」の情報抽出が完了しました。`);
         
         // JSONをパースして返す
-        return JSON.parse(extractedJson);
+        try {
+            const parsedJson = JSON.parse(extractedJson);
+            return parsedJson;
+        } catch (error) {
+            addLogEntry(`JSON解析エラー: ${error.message}`, 'error');
+            addLogEntry(`解析対象のJSON: ${extractedJson.substring(0, 100)}...`, 'warning');
+            throw new Error('JSONの解析に失敗しました。');
+        }
     } catch (error) {
-        console.error('Claude APIエラー:', error);
-        addLogEntry(`「${companyName}」の情報抽出中にエラーが発生しました。`, 'error');
-        
-        // エラーの場合は空のオブジェクトを返す
-        return {
-            postalCode: '',
-            prefecture: '',
-            city: '',
-            address: '',
-            representativeTitle: '',
-            representativeName: ''
-        };
+        addLogEntry(`Claude APIエラー: ${error.message}`, 'error');
+        throw error; // エラーを上位に伝播させる
     }
 }
 
@@ -638,8 +702,10 @@ function addLogEntry(message, type = 'info') {
     
     if (type === 'error') {
         logEntry.classList.add('log-error');
+        console.error(message); // コンソールにもエラーを出力
     } else if (type === 'warning') {
         logEntry.classList.add('log-warning');
+        console.warn(message); // コンソールにも警告を出力
     } else if (type === 'success') {
         logEntry.classList.add('log-success');
     }
