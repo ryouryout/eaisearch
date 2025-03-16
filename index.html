@@ -3,104 +3,297 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EAIsearch - 企業情報検索エージェント</title>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <title>企業情報検索</title>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        h1 {
+            text-align: center;
+            color: #0056b3;
+            margin-bottom: 30px;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .search-section {
+            margin-bottom: 20px;
+        }
+        #company-name {
+            width: 100%;
+            height: 80px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #0056b3;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #003d82;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #api-settings-btn {
+            background-color: #6c757d;
+        }
+        #api-settings {
+            display: none;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+        .api-key-input {
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 15px;
+        }
+        .api-key-input label {
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .api-key-input input {
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        #log-container {
+            height: 200px;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            font-family: monospace;
+            font-size: 12px;
+            margin-top: 15px;
+        }
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 2px 5px;
+            border-left: 3px solid #ccc;
+        }
+        .log-error {
+            border-left-color: #dc3545;
+            background-color: #f8d7da;
+        }
+        .log-warning {
+            border-left-color: #ffc107;
+            background-color: #fff3cd;
+        }
+        .log-success {
+            border-left-color: #28a745;
+            background-color: #d4edda;
+        }
+        .log-debug {
+            border-left-color: #6c757d;
+            background-color: #e9ecef;
+            display: none; /* デバッグモードがオフの場合は非表示 */
+        }
+        .log-timestamp {
+            color: #6c757d;
+            font-weight: bold;
+            margin-right: 5px;
+        }
+        .results-section {
+            display: none;
+            margin-top: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        th, td {
+            padding: 10px;
+            text-align: left;
+            border: 1px solid #dee2e6;
+        }
+        th {
+            background-color: #e9ecef;
+            position: sticky;
+            top: 0;
+        }
+        tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+        .export-buttons {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+        }
+        .search-failed {
+            background-color: #f8d7da;
+        }
+        .no-data {
+            background-color: #fff3cd;
+        }
+        .error-message {
+            color: #dc3545;
+            font-style: italic;
+        }
+        #progress-container {
+            display: none;
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #e9ecef;
+            border-radius: 4px;
+            text-align: center;
+        }
+        #current-company {
+            font-weight: bold;
+        }
+        .file-upload {
+            display: flex;
+            align-items: center;
+            margin-top: 10px;
+        }
+        .file-upload label {
+            background-color: #6c757d;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        .file-upload input[type="file"] {
+            display: none;
+        }
+        #api-warning {
+            background-color: #fff3cd;
+            color: #856404;
+            padding: 10px 15px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            border: 1px solid #ffeeba;
+            display: none;
+        }
+        .debug-container {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+            padding: 5px 10px;
+            background-color: #e9ecef;
+            border-radius: 4px;
+        }
+        .debug-container input[type="checkbox"] {
+            margin-right: 8px;
+        }
+        footer {
+            text-align: center;
+            margin-top: 30px;
+            font-size: 12px;
+            color: #6c757d;
+        }
+    </style>
 </head>
 <body>
+    <h1>企業情報検索</h1>
+    
     <div class="container">
-        <header>
-            <div class="logo">
-                <i class="fas fa-building"></i>
-                <h1>EAIsearch</h1>
+        <div class="search-section">
+            <h2>会社名を入力</h2>
+            <div id="api-warning">
+                <strong>⚠️ APIキーが設定されていません。</strong> 「APIキー設定」ボタンをクリックして、必要なAPIキーを設定してください。
             </div>
-            <p class="tagline">企業情報を瞬時に検索・整理</p>
-        </header>
-
-        <main>
-            <section class="search-section">
-                <div class="search-container">
-                    <div class="input-area">
-                        <label for="company-names">会社名リスト（1行に1社、最大500社まで）:</label>
-                        <textarea id="company-names" placeholder="例：
-株式会社〇〇
-〇〇商事
-〇〇ホールディングス"></textarea>
-                    </div>
-                    
-                    <div class="button-group">
-                        <button id="search-btn" class="primary-btn"><i class="fas fa-search"></i> 検索開始</button>
-                        <button id="clear-btn" class="secondary-btn"><i class="fas fa-trash"></i> クリア</button>
-                        <div class="file-input-wrapper">
-                            <button class="secondary-btn">CSVファイル読み込み</button>
-                            <input type="file" id="csv-input" accept=".csv,.txt">
-                        </div>
-                    </div>
-                    
-                    <div class="progress-area">
-                        <div class="progress-label">
-                            進捗状況: <span id="progress-counter">0/0</span> | 
-                            現在の会社: <span id="current-company">-</span>
-                        </div>
-                        <div class="progress-bar-container">
-                            <div id="progress-bar" class="progress-bar"></div>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <section class="log-section">
-                <div class="log-container">
-                    <h3>検索ログ</h3>
-                    <div id="search-log" class="log-content"></div>
-                </div>
-            </section>
-
-            <section class="results-section">
-                <div class="results-container">
-                    <div class="results-header">
-                        <h3>検索結果</h3>
-                        <div class="results-actions">
-                            <button id="export-csv" class="secondary-btn" disabled><i class="fas fa-download"></i> CSV出力</button>
-                            <button id="copy-table" class="secondary-btn" disabled><i class="fas fa-copy"></i> テーブルをコピー</button>
-                        </div>
-                    </div>
-                    <div class="table-container">
-                        <table id="results-table">
-                            <thead>
-                                <tr>
-                                    <th>会社名</th>
-                                    <th>郵便番号</th>
-                                    <th>都道府県</th>
-                                    <th>市区町村</th>
-                                    <th>残りの住所</th>
-                                    <th>代表者役職</th>
-                                    <th>代表者名</th>
-                                </tr>
-                            </thead>
-                            <tbody id="results-body">
-                                <!-- 検索結果がここに表示されます -->
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </section>
-        </main>
-
-        <footer>
-            <div class="footer-content">
-                <p>&copy; 2023 EAIsearch - 企業情報検索エージェント</p>
-                <p>Powered by Claude 3.7 Sonnet & Google Search API</p>
+            <textarea id="company-name" placeholder="検索したい会社名を入力してください。複数の会社名は改行または「,」区切りで入力できます。（例: 株式会社サンプル）"></textarea>
+            
+            <div class="file-upload">
+                <label for="csv-upload">CSVファイルをアップロード</label>
+                <input type="file" id="csv-upload" accept=".csv,text/csv">
+                <span id="file-name"></span>
             </div>
-        </footer>
+            
+            <div class="button-group">
+                <button id="search-btn">検索開始</button>
+                <button id="api-settings-btn">APIキー設定</button>
+            </div>
+            
+            <div id="api-settings">
+                <h3>APIキー設定</h3>
+                <div class="api-key-input">
+                    <label for="google-api-key">Google API Key</label>
+                    <input type="password" id="google-api-key" placeholder="Google API Keyを入力">
+                </div>
+                <div class="api-key-input">
+                    <label for="google-cx">Google Search Engine ID</label>
+                    <input type="text" id="google-cx" placeholder="Google Custom Search Engine IDを入力">
+                </div>
+                <div class="api-key-input">
+                    <label for="claude-api-key">Claude API Key</label>
+                    <input type="password" id="claude-api-key" placeholder="Claude API Keyを入力">
+                </div>
+                <button id="save-api-keys">保存</button>
+            </div>
+            
+            <div id="progress-container">
+                <p>進捗状況: <span id="progress">0/0</span></p>
+                <p>現在の会社: <span id="current-company">-</span></p>
+            </div>
+            
+            <h3>ログ</h3>
+            <div id="log-container"></div>
+        </div>
+        
+        <div id="results-section" class="results-section">
+            <h2>検索結果</h2>
+            <div class="export-buttons">
+                <button id="export-csv" disabled>CSVでエクスポート</button>
+                <button id="copy-results" disabled>結果をコピー</button>
+            </div>
+            <div class="table-container">
+                <table id="result-table">
+                    <thead>
+                        <tr>
+                            <th>会社名</th>
+                            <th>郵便番号</th>
+                            <th>都道府県</th>
+                            <th>市区町村</th>
+                            <th>住所</th>
+                            <th>代表者役職</th>
+                            <th>代表者名</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
     </div>
-
-    <div id="loading-overlay" class="loading-overlay">
-        <div class="loading-spinner"></div>
-        <p>検索中...</p>
-    </div>
-
+    
+    <footer>
+        <p>© 2023 企業情報検索ツール | 注意: このツールは教育目的で作成されたものです。商用利用はお控えください。</p>
+    </footer>
+    
     <script src="app.js"></script>
 </body>
 </html> 

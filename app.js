@@ -2,7 +2,7 @@
 let GOOGLE_API_KEY = localStorage.getItem('google_api_key') || ''; 
 let GOOGLE_SEARCH_ENGINE_ID = localStorage.getItem('google_search_engine_id') || '';
 let CLAUDE_API_KEY = localStorage.getItem('claude_api_key') || '';
-const CLAUDE_MODEL = 'claude-3-7-sonnet-20250219';
+const CLAUDE_MODEL = 'claude-3-opus-20240229';
 
 // 同時に実行できる検索数（調整可能）
 const MAX_CONCURRENT_SEARCHES = 5;
@@ -12,6 +12,9 @@ const MAX_RETRY_COUNT = 3;
 
 // タイムアウト設定（ミリ秒）
 const API_TIMEOUT = 40000; // 40秒に設定
+
+// デバッグモード
+const DEBUG_MODE = true; // デバッグモード有効（開発環境用）
 
 // DOM要素
 const companyNamesTextarea = document.getElementById('company-names');
@@ -35,26 +38,60 @@ let activeSearches = 0;
 let totalSearches = 0;
 let completedSearches = 0;
 let isSearching = false;
+let currentCompanyIndex = 0;
+let companyList = [];
 
 // イベントリスナー
 document.addEventListener('DOMContentLoaded', () => {
-    // APIキー設定ボタンを作成
-    createApiKeySettingsButton();
+    // デバッグモードチェックボックスが存在しない場合は作成
+    if (!document.getElementById('debug-mode')) {
+        const debugContainer = document.createElement('div');
+        debugContainer.classList.add('debug-container');
+        
+        const debugCheckbox = document.createElement('input');
+        debugCheckbox.type = 'checkbox';
+        debugCheckbox.id = 'debug-mode';
+        debugCheckbox.checked = DEBUG_MODE;
+        
+        const debugLabel = document.createElement('label');
+        debugLabel.htmlFor = 'debug-mode';
+        debugLabel.textContent = 'デバッグモード';
+        
+        debugContainer.appendChild(debugCheckbox);
+        debugContainer.appendChild(debugLabel);
+        
+        // ログコンテナの前に挿入
+        const logContainerParent = document.getElementById('log-container').parentNode;
+        logContainerParent.insertBefore(debugContainer, document.getElementById('log-container'));
+    }
     
-    // 検索ボタンのイベントリスナー
-    searchBtn.addEventListener('click', startSearch);
+    // APIキー設定の初期化
+    document.getElementById('google-api-key').value = GOOGLE_API_KEY;
+    document.getElementById('google-cx').value = GOOGLE_SEARCH_ENGINE_ID;
+    document.getElementById('claude-api-key').value = CLAUDE_API_KEY;
     
-    // クリアボタンのイベントリスナー
-    clearBtn.addEventListener('click', clearAll);
+    // イベントリスナーの設定
+    document.getElementById('api-settings-btn').addEventListener('click', toggleApiSettings);
+    document.getElementById('save-api-keys').addEventListener('click', saveApiKeys);
+    document.getElementById('search-btn').addEventListener('click', startSearch);
+    document.getElementById('csv-upload').addEventListener('change', handleFileUpload);
+    document.getElementById('export-csv').addEventListener('click', exportToCSV);
+    document.getElementById('copy-results').addEventListener('click', copyResultsToClipboard);
     
-    // CSVファイル読み込みのイベントリスナー
-    csvInput.addEventListener('change', handleCsvFile);
+    // デバッグモード切り替え時の処理
+    document.getElementById('debug-mode').addEventListener('change', function() {
+        const debugElements = document.querySelectorAll('.log-debug');
+        debugElements.forEach(el => {
+            el.style.display = this.checked ? 'block' : 'none';
+        });
+        
+        if (this.checked) {
+            addLogEntry('デバッグモードが有効になりました。詳細なログが表示されます。', 'debug');
+        }
+    });
     
-    // CSVエクスポートボタンのイベントリスナー
-    exportCsvBtn.addEventListener('click', exportToCsv);
-    
-    // テーブルコピーボタンのイベントリスナー
-    copyTableBtn.addEventListener('click', copyTableToClipboard);
+    checkApiKeys();
+    addLogEntry('アプリケーションの準備ができました。会社名を入力して「検索開始」ボタンをクリックするか、CSVファイルをアップロードしてください。');
 });
 
 // APIキー設定ボタンを作成する関数
@@ -93,36 +130,26 @@ function createApiKeySettingsButton() {
 
 // APIキーが設定されているか確認する関数
 function checkApiKeys() {
-    if (!GOOGLE_API_KEY || !GOOGLE_SEARCH_ENGINE_ID || !CLAUDE_API_KEY) {
-        const warningDiv = document.createElement('div');
-        warningDiv.className = 'api-key-warning';
-        warningDiv.style.backgroundColor = '#fff3cd';
-        warningDiv.style.color = '#856404';
-        warningDiv.style.padding = '10px 15px';
-        warningDiv.style.borderRadius = '5px';
-        warningDiv.style.marginBottom = '15px';
-        warningDiv.style.border = '1px solid #ffeeba';
-        warningDiv.innerHTML = '<strong>⚠️ APIキーが設定されていません。</strong> 「APIキー設定」ボタンをクリックして、必要なAPIキーを設定してください。';
-        
-        // 検索セクションの先頭に挿入
-        const searchContainer = document.querySelector('.search-container');
-        const firstElement = searchContainer.querySelector('.search-header');
-        searchContainer.insertBefore(warningDiv, firstElement.nextSibling);
-        
-        // 検索ボタンを無効化
-        searchBtn.disabled = true;
-        searchBtn.title = 'APIキーを設定してください';
+    const allKeysSet = GOOGLE_API_KEY && GOOGLE_SEARCH_ENGINE_ID && CLAUDE_API_KEY;
+    
+    if (!allKeysSet) {
+        addLogEntry('APIキーが設定されていません。「APIキー設定」ボタンから必要なキーを設定してください。', 'warning');
+        document.getElementById('api-warning').style.display = 'block';
     } else {
-        // 既存の警告があれば削除
-        const existingWarning = document.querySelector('.api-key-warning');
-        if (existingWarning) {
-            existingWarning.remove();
-        }
-        
-        // 検索ボタンを有効化
-        searchBtn.disabled = false;
-        searchBtn.title = '';
+        document.getElementById('api-warning').style.display = 'none';
+        addLogEntry('APIキーが設定されています。', 'success');
     }
+    
+    // APIキーの形式チェック（簡易版）
+    if (GOOGLE_API_KEY && !GOOGLE_API_KEY.startsWith('AIza')) {
+        addLogEntry('Google APIキーの形式が正しくない可能性があります。通常はAIzaで始まります。', 'warning');
+    }
+    
+    if (CLAUDE_API_KEY && !CLAUDE_API_KEY.startsWith('sk-')) {
+        addLogEntry('Claude APIキーの形式が正しくない可能性があります。通常はsk-で始まります。', 'warning');
+    }
+    
+    return allKeysSet;
 }
 
 // APIキー設定ダイアログを表示する関数
@@ -309,261 +336,552 @@ function showApiKeySettings() {
 
 // 検索を開始する関数
 async function startSearch() {
-    // APIキーが設定されていない場合は設定ダイアログを表示
-    if (!GOOGLE_API_KEY || !GOOGLE_SEARCH_ENGINE_ID || !CLAUDE_API_KEY) {
-        addLogEntry('エラー: APIキーが設定されていません。', 'error');
-        showApiKeySettings();
+    if (isSearching) {
+        addLogEntry('すでに検索が進行中です。完了するまでお待ちください。', 'warning');
         return;
     }
     
-    // すでに検索中の場合は何もしない
-    if (isSearching) return;
-    
-    // 会社名のリストを取得
-    const companyNames = companyNamesTextarea.value.trim().split('\n')
-        .filter(name => name.trim() !== '')
-        .map(name => name.trim())
-        .slice(0, 500); // 最大500社まで
-    
-    // 会社名が入力されていない場合
-    if (companyNames.length === 0) {
-        addLogEntry('エラー: 会社名を入力してください。', 'error');
+    // APIキーの確認
+    if (!checkApiKeys()) {
+        addLogEntry('APIキーが設定されていません。検索を開始できません。', 'error');
+        document.getElementById('api-settings').style.display = 'block';
         return;
     }
     
-    // 入力内容の確認
-    for (const name of companyNames) {
-        if (name === 'エクサウィザーズ' || name.includes('エクサ') || name.includes('Exawizards') || name.includes('exawizards')) {
-            // 「エクサウィザーズ」という会社名があれば警告
-            addLogEntry(`注意: 「${name}」という会社名では情報抽出に問題が発生する場合があります。正式名称（株式会社エクサウィザーズなど）を使用することをお勧めします。`, 'warning');
+    const companyInput = document.getElementById('company-name').value.trim();
+    
+    if (!companyInput) {
+        addLogEntry('会社名が入力されていません。', 'error');
+        return;
+    }
+    
+    // 複数の会社名を分割
+    companyList = companyInput.split(/[,、\n]+/).map(name => name.trim()).filter(name => name);
+    
+    if (companyList.length === 0) {
+        addLogEntry('有効な会社名が見つかりません。', 'error');
+        return;
+    }
+    
+    // ネットワーク接続の確認
+    try {
+        addLogEntry('ネットワーク接続を確認中...', 'debug');
+        const networkCheck = await fetch('https://www.google.com', { 
+            method: 'HEAD', 
+            mode: 'no-cors',
+            cache: 'no-store'
+        });
+        addLogEntry('ネットワーク接続を確認しました。', 'debug');
+    } catch (error) {
+        addLogEntry('ネットワーク接続に問題があります。インターネット接続を確認してください。', 'error');
+        return;
+    }
+    
+    // 結果テーブルをクリア
+    const resultTable = document.getElementById('result-table');
+    const tbody = resultTable.querySelector('tbody');
+    tbody.innerHTML = '';
+    
+    // 結果表示領域を表示
+    document.getElementById('results-section').style.display = 'block';
+    
+    // CSVエクスポートボタンを無効化
+    document.getElementById('export-csv').disabled = true;
+    document.getElementById('copy-results').disabled = true;
+    
+    // 検索結果の配列をクリア
+    searchResults = [];
+    currentCompanyIndex = 0;
+    isSearching = true;
+    
+    // 複数の会社を検索する場合のメッセージ
+    if (companyList.length > 1) {
+        addLogEntry(`${companyList.length}社の検索を開始します。`, 'info');
+    }
+    
+    // 進捗表示の初期化
+    document.getElementById('progress').textContent = `0/${companyList.length}`;
+    document.getElementById('progress-container').style.display = 'block';
+    
+    // 会社ごとに検索を実行
+    for (let i = 0; i < companyList.length; i++) {
+        currentCompanyIndex = i;
+        const company = companyList[i];
+        
+        if (i > 0) {
+            // 連続リクエストを避けるために少し待機
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        
+        document.getElementById('progress').textContent = `${i+1}/${companyList.length}`;
+        document.getElementById('current-company').textContent = company;
+        
+        try {
+            addLogEntry(`「${company}」の検索を開始します (${i+1}/${companyList.length})...`);
+            
+            // 特定の会社名に対する警告
+            if (company === 'エクサウィザーズ' || 
+                company.includes('エクサ') || 
+                company.includes('Exawizards') ||
+                company.includes('exawizards')) {
+                addLogEntry(`注意: 「${company}」は検索で問題が発生することがあります。時間がかかる場合があります。`, 'warning');
+            }
+            
+            // 会社情報の検索
+            const companyInfo = await searchCompanyInfo(company);
+            
+            // 結果を配列に追加
+            searchResults.push({
+                companyName: company,
+                ...companyInfo
+            });
+            
+            // テーブルに結果を追加
+            addResultToTable(company, companyInfo);
+            
+        } catch (error) {
+            addLogEntry(`「${company}」の検索に失敗しました: ${error.message}`, 'error');
+            
+            // 失敗した場合も空のデータで結果を記録
+            searchResults.push({
+                companyName: company,
+                postalCode: '',
+                prefecture: '',
+                city: '',
+                address: '',
+                representativeTitle: '',
+                representativeName: '',
+                error: error.message
+            });
+            
+            // テーブルに失敗を表示
+            addFailureToTable(company, error.message);
         }
     }
     
-    // 検索状態を初期化
-    initializeSearch(companyNames);
+    isSearching = false;
+    addLogEntry('すべての検索が完了しました。', 'success');
     
-    // 検索キューを処理
-    processSearchQueue();
+    // CSVエクスポートボタンを有効化
+    document.getElementById('export-csv').disabled = false;
+    document.getElementById('copy-results').disabled = false;
 }
 
-// 検索状態を初期化する関数
-function initializeSearch(companyNames) {
-    searchResults = [];
-    searchQueue = [...companyNames];
-    activeSearches = 0;
-    totalSearches = companyNames.length;
-    completedSearches = 0;
-    isSearching = true;
+// 検索結果をテーブルに追加する関数
+function addResultToTable(companyName, companyInfo) {
+    const resultTable = document.getElementById('result-table');
+    const tbody = resultTable.querySelector('tbody');
+    const row = document.createElement('tr');
     
-    // UI更新
-    updateProgress(0, totalSearches);
-    loadingOverlay.style.display = 'flex';
-    addLogEntry(`検索を開始します。対象企業数: ${totalSearches}社`);
+    // データに基づいてセルを作成
+    row.innerHTML = `
+        <td>${escapeHtml(companyName)}</td>
+        <td>${escapeHtml(companyInfo.postalCode || '')}</td>
+        <td>${escapeHtml(companyInfo.prefecture || '')}</td>
+        <td>${escapeHtml(companyInfo.city || '')}</td>
+        <td>${escapeHtml(companyInfo.address || '')}</td>
+        <td>${escapeHtml(companyInfo.representativeTitle || '')}</td>
+        <td>${escapeHtml(companyInfo.representativeName || '')}</td>
+    `;
     
-    // 結果テーブルをクリア
-    clearResults();
+    // データが1つも無い場合はスタイルを変更
+    const hasData = Object.values(companyInfo).some(val => val && val.trim() !== '');
+    if (!hasData) {
+        row.classList.add('no-data');
+    }
     
-    // ボタンの状態を更新
-    searchBtn.disabled = true;
-    clearBtn.disabled = true;
-    exportCsvBtn.disabled = true;
-    copyTableBtn.disabled = true;
+    tbody.appendChild(row);
 }
 
-// 検索キューを処理する関数
-async function processSearchQueue() {
-    // 全ての検索が完了した場合
-    if (searchQueue.length === 0 && activeSearches === 0) {
-        finishSearch();
+// 検索失敗をテーブルに表示する関数
+function addFailureToTable(companyName, errorMessage) {
+    const resultTable = document.getElementById('result-table');
+    const tbody = resultTable.querySelector('tbody');
+    const row = document.createElement('tr');
+    
+    row.classList.add('search-failed');
+    
+    // エラーメッセージ付きの失敗行を作成
+    row.innerHTML = `
+        <td>${escapeHtml(companyName)}</td>
+        <td colspan="6" class="error-message">検索失敗: ${escapeHtml(errorMessage)}</td>
+    `;
+    
+    tbody.appendChild(row);
+}
+
+// HTMLタグをエスケープする関数
+function escapeHtml(str) {
+    if (!str) return '';
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+// CSVにエクスポートする関数
+function exportToCSV() {
+    if (searchResults.length === 0) {
+        addLogEntry('エクスポートする結果がありません。', 'warning');
         return;
     }
     
-    // 並行検索数が上限に達していない、かつキューが空でない場合、新しい検索を開始
-    while (activeSearches < MAX_CONCURRENT_SEARCHES && searchQueue.length > 0) {
-        const companyName = searchQueue.shift();
-        activeSearches++;
+    // CSVヘッダー
+    let csv = '会社名,郵便番号,都道府県,市区町村,住所,代表者役職,代表者名\n';
+    
+    // 各行のデータ
+    searchResults.forEach(result => {
+        const row = [
+            escapeCsvField(result.companyName),
+            escapeCsvField(result.postalCode || ''),
+            escapeCsvField(result.prefecture || ''),
+            escapeCsvField(result.city || ''),
+            escapeCsvField(result.address || ''),
+            escapeCsvField(result.representativeTitle || ''),
+            escapeCsvField(result.representativeName || '')
+        ].join(',');
         
-        // 非同期で会社情報を検索
-        searchCompanyInfo(companyName)
-            .then(result => {
-                // 検索結果を配列に追加
-                searchResults.push(result);
-                
-                // 結果テーブルに行を追加
-                addResultRow(result);
-                
-                // カウンターを更新
-                completedSearches++;
-                updateProgress(completedSearches, totalSearches);
-                
-                addLogEntry(`「${companyName}」の検索が完了しました。（${completedSearches}/${totalSearches}）`, 'success');
-            })
-            .catch(error => {
-                // エラーが発生した場合
-                completedSearches++;
-                updateProgress(completedSearches, totalSearches);
-                
-                // エラーの詳細なログ
-                let errorMessage = error.message || 'Unknown error occurred';
-                
-                // APIキーに関連するエラーの場合
-                if (errorMessage.includes('API key') || 
-                    errorMessage.includes('APIキー') || 
-                    errorMessage.includes('401') || 
-                    errorMessage.includes('認証')) {
-                    addLogEntry(`エラー: APIキーが無効または期限切れの可能性があります。APIキー設定を確認してください。`, 'error');
-                } else if (errorMessage.includes('タイムアウト')) {
-                    addLogEntry(`エラー: 「${companyName}」の検索中にタイムアウトが発生しました。サーバーの応答が遅いか、一時的な問題が発生している可能性があります。`, 'error');
-                } else {
-                    // その他のエラー
-                    addLogEntry(`エラー: 「${companyName}」の検索に失敗しました: ${errorMessage}`, 'error');
-                }
-                
-                // 特定の会社名に関する追加情報
-                if (companyName === 'エクサウィザーズ' || companyName.includes('エクサ') || companyName.includes('Exawizards') || companyName.includes('exawizards')) {
-                    addLogEntry(`ヒント: 「${companyName}」のような特定の会社名では、APIの処理に問題が発生する場合があります。会社名を正式名称（例：株式会社エクサウィザーズ）で試すか、別の会社名を使用してください。`, 'warning');
-                }
-                
-                // エラーでも結果配列に追加（検索失敗を明示）
-                const emptyResult = {
-                    companyName: companyName,
-                    postalCode: '検索失敗',
-                    prefecture: '検索失敗',
-                    city: '検索失敗',
-                    address: '検索失敗',
-                    representativeTitle: '検索失敗',
-                    representativeName: '検索失敗'
-                };
-                searchResults.push(emptyResult);
-                addResultRow(emptyResult);
-            })
-            .finally(() => {
-                // アクティブな検索数を減らす
-                activeSearches--;
-                
-                // キューの処理を続行
-                processSearchQueue();
-            });
+        csv += row + '\n';
+    });
+    
+    // CSVダウンロード
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    
+    link.setAttribute('href', url);
+    link.setAttribute('download', '会社情報検索結果.csv');
+    link.style.visibility = 'hidden';
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    addLogEntry('CSVファイルがエクスポートされました。', 'success');
+}
+
+// CSV項目をエスケープする関数
+function escapeCsvField(field) {
+    if (field === null || field === undefined) return '';
+    return `"${String(field).replace(/"/g, '""')}"`;
+}
+
+// 検索結果をクリップボードにコピーする関数
+function copyResultsToClipboard() {
+    if (searchResults.length === 0) {
+        addLogEntry('コピーする結果がありません。', 'warning');
+        return;
     }
+    
+    // テーブルの内容をテキストに変換
+    const resultTable = document.getElementById('result-table');
+    const rows = resultTable.querySelectorAll('tbody tr');
+    
+    let text = '会社名\t郵便番号\t都道府県\t市区町村\t住所\t代表者役職\t代表者名\n';
+    
+    rows.forEach(row => {
+        const cells = row.querySelectorAll('td');
+        
+        if (cells.length >= 7) {
+            // 通常の結果行
+            text += `${cells[0].textContent}\t${cells[1].textContent}\t${cells[2].textContent}\t${cells[3].textContent}\t${cells[4].textContent}\t${cells[5].textContent}\t${cells[6].textContent}\n`;
+        } else if (cells.length === 2) {
+            // エラー行
+            text += `${cells[0].textContent}\t検索失敗\t\t\t\t\t\n`;
+        }
+    });
+    
+    // クリップボードにコピー
+    navigator.clipboard.writeText(text)
+        .then(() => {
+            addLogEntry('検索結果がクリップボードにコピーされました。', 'success');
+        })
+        .catch(err => {
+            addLogEntry(`クリップボードへのコピーに失敗しました: ${err}`, 'error');
+        });
+}
+
+// APIキー設定を保存する関数
+function saveApiKeys() {
+    GOOGLE_API_KEY = document.getElementById('google-api-key').value.trim();
+    GOOGLE_SEARCH_ENGINE_ID = document.getElementById('google-cx').value.trim();
+    CLAUDE_API_KEY = document.getElementById('claude-api-key').value.trim();
+    
+    localStorage.setItem('google_api_key', GOOGLE_API_KEY);
+    localStorage.setItem('google_search_engine_id', GOOGLE_SEARCH_ENGINE_ID);
+    localStorage.setItem('claude_api_key', CLAUDE_API_KEY);
+    
+    // APIキーを非表示
+    if (GOOGLE_API_KEY) {
+        addLogEntry('Google API Keyが設定されました: ' + hideAPIKey(GOOGLE_API_KEY), 'success');
+    }
+    
+    if (GOOGLE_SEARCH_ENGINE_ID) {
+        addLogEntry('Google Search Engine IDが設定されました: ' + hideAPIKey(GOOGLE_SEARCH_ENGINE_ID), 'success');
+    }
+    
+    if (CLAUDE_API_KEY) {
+        addLogEntry('Claude API Keyが設定されました: ' + hideAPIKey(CLAUDE_API_KEY), 'success');
+    }
+    
+    // APIキーの確認
+    checkApiKeys();
+    
+    // 設定パネルを閉じる
+    document.getElementById('api-settings').style.display = 'none';
+}
+
+// APIキーを隠す関数（最初と最後の数文字のみ表示）
+function hideAPIKey(key) {
+    if (!key) return '';
+    if (key.length <= 6) return '******'; // 短すぎる場合はすべて隠す
+    return key.substring(0, 3) + '...' + key.substring(key.length - 3);
+}
+
+// APIキー設定パネルの表示切り替え
+function toggleApiSettings() {
+    const apiSettings = document.getElementById('api-settings');
+    apiSettings.style.display = apiSettings.style.display === 'block' ? 'none' : 'block';
+}
+
+// CSVファイルのアップロード処理
+function handleFileUpload(event) {
+    const file = event.target.files[0];
+    
+    if (!file) {
+        return;
+    }
+    
+    // ファイル形式の確認
+    if (file.type !== 'text/csv' && !file.name.endsWith('.csv')) {
+        addLogEntry('CSVファイル以外はアップロードできません。', 'error');
+        return;
+    }
+    
+    const reader = new FileReader();
+    
+    reader.onload = function(e) {
+        try {
+            // CSVの内容を読み込み
+            const content = e.target.result;
+            
+            // 会社名の配列を作成
+            const companies = [];
+            
+            // CSVの行を処理
+            const lines = content.split(/\r\n|\n/);
+            
+            // 行ごとの処理
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                
+                // 空行をスキップ
+                if (!line) continue;
+                
+                // ヘッダー行をスキップ（1行目が会社名のみの数字でない場合）
+                if (i === 0 && isNaN(line) && line.includes('会社') || line.includes('企業')) {
+                    continue;
+                }
+                
+                // カンマまたはタブ区切りを処理
+                const columns = line.includes(',') ? line.split(',') : line.split('\t');
+                
+                // 最初の列を会社名として追加
+                if (columns[0] && columns[0].trim()) {
+                    companies.push(columns[0].trim());
+                }
+            }
+            
+            if (companies.length === 0) {
+                addLogEntry('CSVファイルから会社名を抽出できませんでした。', 'error');
+                return;
+            }
+            
+            // 会社名を入力欄に設定
+            document.getElementById('company-name').value = companies.join('\n');
+            
+            addLogEntry(`CSVファイルから${companies.length}社の会社名を読み込みました。`, 'success');
+            
+        } catch (error) {
+            addLogEntry(`CSVファイルの読み込みエラー: ${error.message}`, 'error');
+        }
+    };
+    
+    reader.onerror = function() {
+        addLogEntry('CSVファイルの読み込みに失敗しました。', 'error');
+    };
+    
+    reader.readAsText(file);
 }
 
 // 会社情報を検索する関数
 async function searchCompanyInfo(companyName, retryCount = 0) {
+    if (retryCount >= MAX_RETRY_COUNT) {
+        throw new Error(`「${companyName}」の情報抽出に失敗しました。最大試行回数(${MAX_RETRY_COUNT}回)を超過しました。`);
+    }
+    
     try {
-        currentCompanySpan.textContent = companyName;
-        addLogEntry(`「${companyName}」の検索を開始します...`);
-        
-        // 特定の会社名に対する警告
-        if (companyName === 'エクサウィザーズ' || 
-            companyName.includes('エクサ') || 
-            companyName.includes('Exawizards') ||
-            companyName.includes('exawizards')) {
-            addLogEntry(`注意: 「${companyName}」は検索で問題が発生することがあります。できれば正式名称（株式会社エクサウィザーズ）を試してください。`, 'warning');
+        // 会社名の前処理
+        const cleanedCompanyName = companyName.trim();
+        if (!cleanedCompanyName) {
+            throw new Error('会社名が空です。検索する会社名を入力してください。');
         }
         
-        // ステップ1: Google検索で会社情報を取得
-        const searchTerms = generateSearchTerms(companyName);
+        // 会社名に特殊なケースがないかチェック
+        if (cleanedCompanyName === 'エクサウィザーズ' || 
+            cleanedCompanyName.includes('エクサ') || 
+            cleanedCompanyName.includes('Exawizards') ||
+            cleanedCompanyName.includes('exawizards')) {
+            addLogEntry(`警告: 「${cleanedCompanyName}」は検索が難しい場合があります。正式社名「株式会社エクサウィザーズ」で検索することをお勧めします。`, 'warning');
+        }
         
-        let searchResults = [];
-        let searchSuccess = false;
+        // Google検索
+        const searchResults = await googleSearch(cleanedCompanyName);
         
-        // 検索ワードを順番に試す
-        for (const searchTerm of searchTerms) {
-            if (searchSuccess) break;
+        // 検索結果が空の場合
+        if (searchResults.length === 0) {
+            const errorMsg = `「${cleanedCompanyName}」の検索結果が見つかりませんでした。会社名を確認して再試行してください。`;
+            addLogEntry(errorMsg, 'error');
             
-            try {
-                addLogEntry(`検索ワード: "${searchTerm}" を試行中...`);
-                const results = await googleSearch(searchTerm);
-                
-                if (results && results.length > 0) {
-                    searchResults = results;
-                    searchSuccess = true;
-                    addLogEntry(`「${searchTerm}」での検索に成功しました。`);
-                }
-            } catch (error) {
-                addLogEntry(`「${searchTerm}」での検索中にエラーが発生しました: ${error.message}`, 'warning');
+            // 別の会社名で検索を試みる候補を提案
+            if (cleanedCompanyName === 'エクサウィザーズ') {
+                addLogEntry('「株式会社エクサウィザーズ」で検索を試みます...', 'warning');
+                // 再帰的に検索を実行
+                return await searchCompanyInfo('株式会社エクサウィザーズ', retryCount + 1);
+            } else if (cleanedCompanyName.includes('エクサ') && !cleanedCompanyName.includes('株式会社')) {
+                addLogEntry(`「株式会社${cleanedCompanyName}」で検索を試みます...`, 'warning');
+                return await searchCompanyInfo(`株式会社${cleanedCompanyName}`, retryCount + 1);
+            }
+            
+            throw new Error(errorMsg);
+        }
+        
+        // 検索結果が極端に少ない場合
+        if (searchResults.length < 3) {
+            addLogEntry(`「${cleanedCompanyName}」の検索結果が少なめです(${searchResults.length}件)。情報が不足する可能性があります。`, 'warning');
+        }
+        
+        addLogEntry(`「${cleanedCompanyName}」の情報を抽出中...`);
+        
+        // 会社情報の抽出
+        const companyInfo = await extractCompanyInfo(cleanedCompanyName, searchResults);
+        
+        // 結果の検証
+        if (!companyInfo) {
+            throw new Error(`「${cleanedCompanyName}」の情報抽出に失敗しました。`);
+        }
+        
+        // データの検証: すべての値が空でないか確認
+        const hasAnyData = Object.values(companyInfo).some(value => value && value.trim() !== '');
+        if (!hasAnyData) {
+            addLogEntry(`警告: 「${cleanedCompanyName}」の情報が抽出できませんでした。検索を改善するために会社名を調整してください。`, 'warning');
+            
+            // 改善提案
+            if (!cleanedCompanyName.includes('株式会社') && retryCount < MAX_RETRY_COUNT - 1) {
+                addLogEntry(`「株式会社${cleanedCompanyName}」で再検索を試みます...`, 'warning');
+                return await searchCompanyInfo(`株式会社${cleanedCompanyName}`, retryCount + 1);
             }
         }
         
-        if (!searchSuccess) {
-            throw new Error('すべての検索ワードでの検索に失敗しました。APIキーとネットワーク接続を確認してください。');
-        }
-        
-        // ステップ2: Claude APIを使用して会社情報を抽出
-        try {
-            const companyInfo = await extractCompanyInfo(companyName, searchResults);
-            
-            // 結果を返す
-            return {
-                companyName: companyName,
-                postalCode: companyInfo.postalCode || '',
-                prefecture: companyInfo.prefecture || '',
-                city: companyInfo.city || '',
-                address: companyInfo.address || '',
-                representativeTitle: companyInfo.representativeTitle || '',
-                representativeName: companyInfo.representativeName || ''
-            };
-        } catch (error) {
-            addLogEntry(`「${companyName}」の情報抽出中にエラーが発生しました: ${error.message}`, 'error');
-            
-            // 特定のエラーメッセージに基づいた詳細なエラー情報
-            if (error.message.includes('リクエストがタイムアウト')) {
-                addLogEntry(`Claude APIのタイムアウトが発生しました。サーバーの応答が遅いか、一時的な混雑が考えられます。`, 'error');
-            } else if (error.message.includes('rate limit')) {
-                addLogEntry(`API制限に達しました。しばらく待ってから再試行してください。`, 'error');
-            }
-            
-            throw error;
-        }
+        return companyInfo;
     } catch (error) {
-        // リトライ回数が上限に達していない場合はリトライ
-        if (retryCount < MAX_RETRY_COUNT) {
-            const waitTime = 2000 * (retryCount + 1); // リトライごとに待ち時間を増やす
-            addLogEntry(`「${companyName}」の検索に失敗しました。${waitTime/1000}秒後にリトライします... (${retryCount + 1}/${MAX_RETRY_COUNT})`, 'warning');
+        // エラーが発生した場合、retryCountを増やして再試行
+        if (retryCount < MAX_RETRY_COUNT - 1) {
+            const waitTime = 1000 * Math.pow(2, retryCount); // 指数バックオフ
+            addLogEntry(`エラーが発生しました。${waitTime/1000}秒後に再試行します... (${retryCount + 1}/${MAX_RETRY_COUNT})`, 'warning');
+            
             await new Promise(resolve => setTimeout(resolve, waitTime));
-            return searchCompanyInfo(companyName, retryCount + 1);
+            return await searchCompanyInfo(companyName, retryCount + 1);
         } else {
+            addLogEntry(`「${companyName}」の検索に失敗しました: ${error.message}`, 'error');
             throw error;
         }
     }
 }
 
-// 検索ワードを生成する関数
-function generateSearchTerms(companyName) {
-    return [
-        `${companyName} 会社概要 公式サイト`,
-        `${companyName} 本社 所在地 代表`,
-        `${companyName} 企業情報 代表取締役`,
-        `${companyName} コーポレート 住所`,
-        `${companyName} 法人番号 登記`
-    ];
-}
-
-// Google検索APIを使用して検索する関数
-async function googleSearch(query) {
+// Google Custom Search APIを使用して会社名を検索する関数
+async function googleSearch(companyName) {
     try {
-        const url = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_API_KEY}&cx=${GOOGLE_SEARCH_ENGINE_ID}&q=${encodeURIComponent(query)}`;
+        addLogEntry(`「${companyName}」をGoogle検索中...`);
         
-        const response = await fetch(url);
+        // 検索URLを作成
+        const encodedName = encodeURIComponent(companyName);
+        const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_API_KEY}&cx=${GOOGLE_SEARCH_ENGINE_ID}&q=${encodedName}+会社+公式+住所+代表`;
+        
+        addLogEntry(`検索リクエストを送信中...`, 'debug');
+        const response = await fetch(searchUrl);
+        
         if (!response.ok) {
-            throw new Error(`APIエラー: ${response.status} ${response.statusText}`);
+            let errorMessage = `Google検索APIエラー: HTTP ${response.status} ${response.statusText}`;
+            
+            // ステータスコード別のエラーメッセージ
+            if (response.status === 400) {
+                errorMessage = 'Google検索APIのリクエストが不正です。';
+            } else if (response.status === 403) {
+                errorMessage = 'Google検索APIの権限がありません。APIキーを確認してください。';
+            } else if (response.status === 429) {
+                errorMessage = 'Google検索APIの日次クォータまたはレート制限に達しました。明日再試行するか、APIキーの制限を確認してください。';
+            } else if (response.status >= 500) {
+                errorMessage = 'Google検索APIサーバーでエラーが発生しました。しばらく待ってから再試行してください。';
+            }
+            
+            // エラーレスポンスのテキスト取得を試みる
+            try {
+                const errorData = await response.text();
+                if (errorData && errorData.length > 0) {
+                    try {
+                        const errorJson = JSON.parse(errorData);
+                        if (errorJson.error && errorJson.error.message) {
+                            errorMessage += ` - ${errorJson.error.message}`;
+                            
+                            // APIキーが露出しないように置換
+                            if (errorMessage.includes(GOOGLE_API_KEY)) {
+                                errorMessage = errorMessage.replace(GOOGLE_API_KEY, '[API_KEY]');
+                            }
+                        }
+                    } catch (e) {
+                        // JSON解析に失敗した場合は生のレスポンスを使用
+                        errorMessage += ` - ${errorData.substring(0, 200)}`;
+                        
+                        // APIキーが露出しないように置換
+                        if (errorMessage.includes(GOOGLE_API_KEY)) {
+                            errorMessage = errorMessage.replace(GOOGLE_API_KEY, '[API_KEY]');
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to fetch error details:', e);
+            }
+            
+            addLogEntry(errorMessage, 'error');
+            throw new Error(errorMessage);
         }
         
         const data = await response.json();
         
         if (!data.items || data.items.length === 0) {
+            addLogEntry(`「${companyName}」の検索結果が見つかりませんでした。`, 'warning');
             return [];
         }
         
-        // 検索結果を整形
-        return data.items.map(item => ({
-            title: item.title,
-            link: item.link,
-            snippet: item.snippet,
-            htmlSnippet: item.htmlSnippet
-        }));
+        addLogEntry(`「${companyName}」の検索結果を取得しました (${data.items.length}件)`);
+        return data.items;
     } catch (error) {
-        console.error('Google検索APIエラー:', error);
+        if (error.message.includes('API key not valid')) {
+            addLogEntry('Google API Keyが無効です。APIキー設定を確認してください。', 'error');
+        } else if (error.name === 'TypeError' && error.message.includes('fetch')) {
+            addLogEntry('ネットワークエラー: Google検索APIにアクセスできません。ネットワーク接続を確認してください。', 'error');
+        } else {
+            // APIキーが露出しないように置換
+            let errorMessage = error.message;
+            if (errorMessage.includes(GOOGLE_API_KEY)) {
+                errorMessage = errorMessage.replace(GOOGLE_API_KEY, '[API_KEY]');
+            }
+            addLogEntry(`Google検索エラー: ${errorMessage}`, 'error');
+        }
+        console.error('Google Search API error details:', error.name, error.message.replace(GOOGLE_API_KEY, '[API_KEY]'));
         throw error;
     }
 }
@@ -584,6 +902,11 @@ async function extractCompanyInfo(companyName, searchResults) {
             return `タイトル: ${result.title}\nURL: ${result.link}\n内容: ${result.snippet}\n`;
         }).join('\n---\n');
         
+        // 検索結果が少なすぎる場合の警告
+        if (searchResultsText.length < 200) {
+            addLogEntry(`警告: 「${companyName}」の検索結果が少なすぎる可能性があります。`, 'warning');
+        }
+        
         // プロンプトを作成
         const prompt = `以下は「${companyName}」に関するウェブ検索結果です。この情報から、以下の会社情報を可能な限り抽出してください：
 
@@ -597,7 +920,7 @@ async function extractCompanyInfo(companyName, searchResults) {
 検索結果：
 ${searchResultsText}
 
-以下のようなJSONフォーマットで回答してください：
+以下のようなJSON形式で回答してください。他のテキストは含めないでください：
 {
   "postalCode": "郵便番号",
   "prefecture": "都道府県",
@@ -607,12 +930,7 @@ ${searchResultsText}
   "representativeName": "代表者名"
 }
 
-注意：
-- 確実に特定できる情報のみを記入してください。
-- 情報が見つからない場合は、該当フィールドを空文字列("")にしてください。
-- 分析には入手可能な情報のみを使用してください。不明な情報を推測しないでください。
-- 必ず整形されたJSONのみを返してください。他のテキストは含めないでください。
-- JSONの形式を正確に守り、余計な文字や改行を含めないでください。`;
+情報が見つからない場合は該当フィールドを空文字列にしてください。JSONのみを返してください。`;
 
         // Claude APIにリクエストを送信
         addLogEntry(`Claude APIにリクエストを送信中...`);
@@ -685,12 +1003,22 @@ ${searchResultsText}
                 // JSONとしてパースできるかチェック
                 const errorJson = JSON.parse(errorData);
                 if (errorJson.error && errorJson.error.message) {
-                    errorMessage += ` - ${errorJson.error.message}`;
+                    // APIキーが露出しないように置換
+                    let message = errorJson.error.message;
+                    if (message.includes(CLAUDE_API_KEY)) {
+                        message = message.replace(CLAUDE_API_KEY, '[API_KEY]');
+                    }
+                    errorMessage += ` - ${message}`;
                 }
             } catch (e) {
                 // テキストとして表示
                 if (errorData && errorData.length > 0) {
-                    errorMessage += ` - ${errorData.substring(0, 200)}`;
+                    // APIキーが露出しないように置換
+                    let errorText = errorData.substring(0, 200);
+                    if (errorText.includes(CLAUDE_API_KEY)) {
+                        errorText = errorText.replace(CLAUDE_API_KEY, '[API_KEY]');
+                    }
+                    errorMessage += ` - ${errorText}`;
                 }
             }
             
@@ -702,50 +1030,135 @@ ${searchResultsText}
         
         // 応答からJSONを抽出
         if (!data.content || !data.content[0] || !data.content[0].text) {
-            throw new Error('Claude APIからの応答形式が不正です。');
+            const noContentError = 'Claude APIからの応答に内容がありません。';
+            addLogEntry(noContentError, 'error');
+            console.error('Claude API response structure:', Object.keys(data));
+            throw new Error(noContentError);
         }
         
         const content = data.content[0].text;
+        addLogEntry(`Claude APIからの応答を受信しました (${content.length} 文字)`, 'success');
         
-        // JSON部分を正規表現で抽出
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        // 応答全体のログ（開発用）
+        if (document.getElementById('debug-mode').checked) {
+            console.log('Claude API raw response:', content);
+        }
         
-        if (!jsonMatch) {
+        // JSON部分を正規表現で抽出（改良版）
+        const jsonMatch = content.match(/(\{[\s\S]*?\})/g);
+        
+        if (!jsonMatch || jsonMatch.length === 0) {
             const errorMessage = 'Claudeの応答からJSONを抽出できませんでした。';
             addLogEntry(errorMessage, 'error');
-            addLogEntry(`Claude応答: ${content.substring(0, 300)}...`, 'warning');
+            addLogEntry(`Claude応答 (${content.length}文字): ${content.substring(0, 300)}...`, 'warning');
+            
+            // JSONを探す別の方法を試す
+            const bracesMatches = content.match(/\{|\}/g);
+            if (bracesMatches && bracesMatches.length >= 2) {
+                addLogEntry('JSONの括弧を検出しました。手動抽出を試みます...', 'warning');
+                
+                // 最初の { と最後の } の間のすべてのテキストを抽出
+                const firstBrace = content.indexOf('{');
+                const lastBrace = content.lastIndexOf('}');
+                
+                if (firstBrace !== -1 && lastBrace !== -1 && firstBrace < lastBrace) {
+                    const potentialJson = content.substring(firstBrace, lastBrace + 1);
+                    addLogEntry(`潜在的なJSONを見つけました (${potentialJson.length} 文字)`, 'warning');
+                    
+                    try {
+                        const manuallyParsedJson = JSON.parse(potentialJson);
+                        addLogEntry('手動JSON抽出が成功しました！', 'success');
+                        return manuallyParsedJson;
+                    } catch (manualError) {
+                        addLogEntry(`手動JSON解析に失敗しました: ${manualError.message}`, 'error');
+                    }
+                }
+            }
+            
             throw new Error(errorMessage);
         }
         
-        const extractedJson = jsonMatch[0];
+        // 最長のJSONマッチを選択（最も可能性が高い）
+        let extractedJson = jsonMatch[0];
+        if (jsonMatch.length > 1) {
+            addLogEntry(`複数のJSON候補 (${jsonMatch.length}個) を検出しました。最適なものを選択します。`, 'warning');
+            extractedJson = jsonMatch.reduce((longest, current) => 
+                current.length > longest.length ? current : longest, jsonMatch[0]);
+        }
+        
         addLogEntry(`「${companyName}」の情報抽出が完了しました。`);
         
         // JSONをパースして返す
         try {
             const parsedJson = JSON.parse(extractedJson);
+            
+            // 抽出された情報の検証
+            const fields = ['postalCode', 'prefecture', 'city', 'address', 'representativeTitle', 'representativeName'];
+            const foundFields = fields.filter(f => parsedJson[f] && parsedJson[f].trim() !== '').length;
+            
+            if (foundFields === 0) {
+                addLogEntry(`警告: 「${companyName}」の情報が1つも抽出できませんでした。検索結果に十分な情報がない可能性があります。`, 'warning');
+            } else {
+                addLogEntry(`「${companyName}」の${foundFields}項目の情報を抽出しました。`, 'success');
+            }
+            
             return parsedJson;
         } catch (error) {
             addLogEntry(`JSON解析エラー: ${error.message}`, 'error');
             addLogEntry(`解析対象のJSON: ${extractedJson.substring(0, 200)}...`, 'warning');
             
             // JSONの修正を試みる
-            const fixedJson = extractedJson
-                .replace(/\n/g, ' ')
-                .replace(/,\s*}/g, '}')
-                .replace(/,\s*,/g, ',')
-                .replace(/:\s*,/g, ': "",')
-                .replace(/"\s*:/g, '":')
-                .replace(/:\s*"/g, ':"')
-                .replace(/\\+/g, '\\')
-                .replace(/\\"/g, '"')
-                .replace(/"{/g, '{')
-                .replace(/}"/g, '}');
-                
             try {
-                addLogEntry(`JSON修正を試みます...`, 'warning');
-                const parsedFixedJson = JSON.parse(fixedJson);
-                addLogEntry(`JSON修正が成功しました。`, 'success');
-                return parsedFixedJson;
+                // まず基本的なクリーンアップ
+                let fixedJson = extractedJson
+                    .replace(/\n/g, ' ')
+                    .replace(/\r/g, '')
+                    .replace(/\t/g, ' ')
+                    .trim();
+                
+                // クォートの修正
+                fixedJson = fixedJson
+                    .replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2":') // キーを正しくクォート
+                    .replace(/:\s*['"]([^'"]*)['"],?/g, ':"$1",')        // 値のクォートを統一
+                    .replace(/:\s*['"]([^'"]*)$/g, ':"$1"')              // 行末の値
+                    .replace(/,\s*}/g, '}')                             // 末尾のカンマを削除
+                    .replace(/,\s*,/g, ',')                             // 重複したカンマを削除
+                    .replace(/:\s*,/g, ':"",' )                         // 空の値
+                    .replace(/'{/g, '{').replace(/}'/g, '}')            // シングルクォート除去
+                    .replace(/\\+/g, '\\')                              // バックスラッシュの正規化
+                    .replace(/\\"/g, '"')                               // エスケープクォートの処理
+                    .replace(/"{/g, '{').replace(/}"/g, '}')            // 余分なクォート
+                    .replace(/"\s*:/g, '":')                            // スペースの除去
+                    .replace(/:\s*"/g, ':"');                           // スペースの除去
+                
+                // 必須フィールドの存在確認と追加
+                const requiredFields = ['postalCode', 'prefecture', 'city', 'address', 'representativeTitle', 'representativeName'];
+                const tempObj = {};
+                
+                try {
+                    // 部分的にでもパースできるか試す
+                    const partialObj = JSON.parse(fixedJson);
+                    
+                    // 必須フィールドを追加
+                    requiredFields.forEach(field => {
+                        tempObj[field] = partialObj[field] || '';
+                    });
+                    
+                    return tempObj; // 成功したらここで返す
+                } catch (e) {
+                    // パースできなかった場合、さらに修正を試みる
+                    addLogEntry(`部分的なJSON解析にも失敗しました。最終手段を試みます...`, 'warning');
+                    
+                    // 最も単純な形で返す
+                    return {
+                        postalCode: '',
+                        prefecture: '',
+                        city: '',
+                        address: '',
+                        representativeTitle: '',
+                        representativeName: ''
+                    };
+                }
             } catch (fixError) {
                 addLogEntry(`JSON修正にも失敗しました: ${fixError.message}`, 'error');
                 throw new Error('JSONの解析に失敗しました。Claude APIの応答が不正な形式です。');
@@ -753,23 +1166,14 @@ ${searchResultsText}
         }
     } catch (error) {
         addLogEntry(`Claude APIエラー: ${error.message}`, 'error');
+        // APIキーが露出しないように置換
+        let errorMessage = error.message;
+        if (errorMessage.includes(CLAUDE_API_KEY)) {
+            errorMessage = errorMessage.replace(CLAUDE_API_KEY, '[API_KEY]');
+        }
+        console.error('Claude API error:', errorMessage);
         throw error; // エラーを上位に伝播させる
     }
-}
-
-// 検索を終了する関数
-function finishSearch() {
-    isSearching = false;
-    loadingOverlay.style.display = 'none';
-    currentCompanySpan.textContent = '-';
-    
-    // ボタンの状態を更新
-    searchBtn.disabled = false;
-    clearBtn.disabled = false;
-    exportCsvBtn.disabled = false;
-    copyTableBtn.disabled = false;
-    
-    addLogEntry(`検索が完了しました。合計 ${totalSearches} 社の情報を取得しました。`, 'success');
 }
 
 // 進捗を更新する関数
@@ -781,47 +1185,56 @@ function updateProgress(completed, total) {
 
 // ログエントリを追加する関数
 function addLogEntry(message, type = 'info') {
-    const now = new Date();
-    const timeString = now.toLocaleTimeString();
-    
+    const timestamp = new Date().toLocaleTimeString('ja-JP');
     const logEntry = document.createElement('div');
     logEntry.classList.add('log-entry');
     
-    if (type === 'error') {
-        logEntry.classList.add('log-error');
-        console.error(message); // コンソールにもエラーを出力
-    } else if (type === 'warning') {
-        logEntry.classList.add('log-warning');
-        console.warn(message); // コンソールにも警告を出力
-    } else if (type === 'success') {
-        logEntry.classList.add('log-success');
-        console.log('%c' + message, 'color: green; font-weight: bold;');
-    } else {
-        console.log(message); // 通常のログもコンソールに出力
+    // タイプに応じてスタイルとコンソールログを変更
+    switch (type) {
+        case 'error':
+            logEntry.classList.add('log-error');
+            console.error(`[${timestamp}] ${message}`);
+            break;
+        case 'warning':
+            logEntry.classList.add('log-warning');
+            console.warn(`[${timestamp}] ${message}`);
+            break;
+        case 'success':
+            logEntry.classList.add('log-success');
+            console.log(`[${timestamp}] ${message}`);
+            break;
+        case 'debug':
+            // デバッグモードの場合のみ表示
+            if (document.getElementById('debug-mode').checked) {
+                logEntry.classList.add('log-debug');
+                console.debug(`[${timestamp}] ${message}`);
+            } else {
+                return; // デバッグモードがオフの場合は表示しない
+            }
+            break;
+        default:
+            console.log(`[${timestamp}] ${message}`);
     }
     
-    logEntry.innerHTML = `<span class="log-time">[${timeString}]</span> ${message}`;
+    // エラーメッセージにスタック情報を追加（開発時に役立つ）
+    if (type === 'error' && document.getElementById('debug-mode').checked) {
+        try {
+            throw new Error('Stack Trace');
+        } catch (e) {
+            const stackLines = e.stack.split('\n');
+            if (stackLines.length > 2) {
+                console.debug('Call Stack:', stackLines.slice(2).join('\n'));
+            }
+        }
+    }
     
-    searchLog.appendChild(logEntry);
-    searchLog.scrollTop = searchLog.scrollHeight;
-}
-
-// 結果テーブルに行を追加する関数
-function addResultRow(result) {
-    const row = document.createElement('tr');
+    // ログエントリに内容を設定
+    logEntry.innerHTML = `<span class="log-timestamp">${timestamp}</span> ${message}`;
+    document.getElementById('log-container').appendChild(logEntry);
     
-    // 各列のデータを追加
-    row.innerHTML = `
-        <td>${escapeHTML(result.companyName)}</td>
-        <td>${escapeHTML(result.postalCode)}</td>
-        <td>${escapeHTML(result.prefecture)}</td>
-        <td>${escapeHTML(result.city)}</td>
-        <td>${escapeHTML(result.address)}</td>
-        <td>${escapeHTML(result.representativeTitle)}</td>
-        <td>${escapeHTML(result.representativeName)}</td>
-    `;
-    
-    resultsBody.appendChild(row);
+    // ログを自動スクロール
+    const logContainer = document.getElementById('log-container');
+    logContainer.scrollTop = logContainer.scrollHeight;
 }
 
 // 結果テーブルをクリアする関数
@@ -846,116 +1259,22 @@ function clearAll() {
     addLogEntry('すべての情報がクリアされました。');
 }
 
-// CSVファイルを処理する関数
-function handleCsvFile(event) {
-    const file = event.target.files[0];
-    if (!file) return;
+// 結果テーブルに行を追加する関数
+function addResultRow(result) {
+    const row = document.createElement('tr');
     
-    addLogEntry(`ファイル "${file.name}" を読み込んでいます...`);
+    // 各列のデータを追加
+    row.innerHTML = `
+        <td>${escapeHTML(result.companyName)}</td>
+        <td>${escapeHTML(result.postalCode)}</td>
+        <td>${escapeHTML(result.prefecture)}</td>
+        <td>${escapeHTML(result.city)}</td>
+        <td>${escapeHTML(result.address)}</td>
+        <td>${escapeHTML(result.representativeTitle)}</td>
+        <td>${escapeHTML(result.representativeName)}</td>
+    `;
     
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        const content = e.target.result;
-        
-        // CSVを解析して会社名リストを取得
-        let companyNames;
-        
-        // カンマまたはタブ区切りで分割
-        if (content.includes(',')) {
-            companyNames = content.split('\n')
-                .map(line => line.split(',')[0].trim())
-                .filter(name => name !== '');
-        } else if (content.includes('\t')) {
-            companyNames = content.split('\n')
-                .map(line => line.split('\t')[0].trim())
-                .filter(name => name !== '');
-        } else {
-            companyNames = content.split('\n')
-                .map(line => line.trim())
-                .filter(name => name !== '');
-        }
-        
-        // テキストエリアに設定
-        companyNamesTextarea.value = companyNames.join('\n');
-        
-        addLogEntry(`${companyNames.length} 社の会社名を読み込みました。`);
-        
-        // ファイル入力をリセット
-        event.target.value = '';
-    };
-    
-    reader.onerror = function() {
-        addLogEntry(`ファイル "${file.name}" の読み込み中にエラーが発生しました。`, 'error');
-    };
-    
-    reader.readAsText(file);
-}
-
-// 検索結果をCSVにエクスポートする関数
-function exportToCsv() {
-    if (searchResults.length === 0) return;
-    
-    // CSVヘッダー
-    const header = '会社名,郵便番号,都道府県,市区町村,残りの住所,代表者役職,代表者名';
-    
-    // CSVデータを作成
-    const csvContent = searchResults.map(result => {
-        return [
-            escapeCsvField(result.companyName),
-            escapeCsvField(result.postalCode),
-            escapeCsvField(result.prefecture),
-            escapeCsvField(result.city),
-            escapeCsvField(result.address),
-            escapeCsvField(result.representativeTitle),
-            escapeCsvField(result.representativeName)
-        ].join(',');
-    }).join('\n');
-    
-    // CSVをダウンロード
-    const blob = new Blob([`${header}\n${csvContent}`], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    
-    link.href = url;
-    link.setAttribute('download', `company_info_${formatDateForFilename()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    addLogEntry('CSVファイルをエクスポートしました。');
-}
-
-// テーブルをクリップボードにコピーする関数
-function copyTableToClipboard() {
-    if (searchResults.length === 0) return;
-    
-    // ヘッダー行
-    const header = [
-        '会社名', '郵便番号', '都道府県', '市区町村', '残りの住所', '代表者役職', '代表者名'
-    ].join('\t');
-    
-    // データ行
-    const rows = searchResults.map(result => {
-        return [
-            result.companyName,
-            result.postalCode,
-            result.prefecture,
-            result.city,
-            result.address,
-            result.representativeTitle,
-            result.representativeName
-        ].join('\t');
-    }).join('\n');
-    
-    // クリップボードにコピー
-    const copyText = `${header}\n${rows}`;
-    navigator.clipboard.writeText(copyText)
-        .then(() => {
-            addLogEntry('テーブルをクリップボードにコピーしました。');
-        })
-        .catch(err => {
-            addLogEntry('テーブルのコピーに失敗しました: ' + err, 'error');
-        });
+    resultsBody.appendChild(row);
 }
 
 // HTML特殊文字をエスケープする関数
