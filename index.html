@@ -21,48 +21,49 @@
         <main>
             <section class="search-section">
                 <div class="search-container">
-                    <div class="search-input-container">
-                        <textarea id="company-names" placeholder="検索したい会社名を入力してください（複数の場合は1行ごとに入力、最大500社）"></textarea>
-                        <div class="search-controls">
-                            <button id="search-btn" class="primary-btn"><i class="fas fa-search"></i> 検索開始</button>
-                            <button id="clear-btn" class="secondary-btn"><i class="fas fa-trash"></i> クリア</button>
+                    <div class="input-area">
+                        <label for="company-names">会社名リスト（1行に1社、最大500社まで）:</label>
+                        <textarea id="company-names" placeholder="例：
+株式会社〇〇
+〇〇商事
+〇〇ホールディングス"></textarea>
+                    </div>
+                    
+                    <div class="button-group">
+                        <button id="search-btn" class="primary-btn"><i class="fas fa-search"></i> 検索開始</button>
+                        <button id="clear-btn" class="secondary-btn"><i class="fas fa-trash"></i> クリア</button>
+                        <div class="file-input-wrapper">
+                            <button class="secondary-btn">CSVファイル読み込み</button>
+                            <input type="file" id="csv-input" accept=".csv,.txt">
                         </div>
                     </div>
-                    <div class="file-input-container">
-                        <label for="csv-input" class="file-input-label">
-                            <i class="fas fa-file-csv"></i> CSVファイルから読み込む
-                        </label>
-                        <input type="file" id="csv-input" accept=".csv,.txt">
-                    </div>
-                </div>
-            </section>
-
-            <section class="progress-section">
-                <div class="progress-container">
-                    <h2>検索進捗 <span id="progress-counter">0/0</span></h2>
-                    <div class="progress-bar-container">
-                        <div class="progress-bar" id="progress-bar"></div>
-                    </div>
-                    <div class="search-status">
-                        <p>現在の検索: <span id="current-company">-</span></p>
+                    
+                    <div class="progress-area">
+                        <div class="progress-label">
+                            進捗状況: <span id="progress-counter">0/0</span> | 
+                            現在の会社: <span id="current-company">-</span>
+                        </div>
+                        <div class="progress-bar-container">
+                            <div id="progress-bar" class="progress-bar"></div>
+                        </div>
                     </div>
                 </div>
             </section>
 
             <section class="log-section">
                 <div class="log-container">
-                    <h2>検索ログ</h2>
-                    <div id="search-log" class="search-log"></div>
+                    <h3>検索ログ</h3>
+                    <div id="search-log" class="log-content"></div>
                 </div>
             </section>
 
             <section class="results-section">
                 <div class="results-container">
                     <div class="results-header">
-                        <h2>検索結果</h2>
+                        <h3>検索結果</h3>
                         <div class="results-actions">
-                            <button id="export-csv" class="action-btn" disabled><i class="fas fa-download"></i> CSVエクスポート</button>
-                            <button id="copy-table" class="action-btn" disabled><i class="fas fa-copy"></i> テーブルコピー</button>
+                            <button id="export-csv" class="secondary-btn" disabled><i class="fas fa-download"></i> CSV出力</button>
+                            <button id="copy-table" class="secondary-btn" disabled><i class="fas fa-copy"></i> テーブルをコピー</button>
                         </div>
                     </div>
                     <div class="table-container">
@@ -88,14 +89,16 @@
         </main>
 
         <footer>
-            <p>&copy; 2023 EAIsearch. すべての権利を保有します。</p>
-            <p>Powered by Claude 3.7 Sonnet & Google Search API</p>
+            <div class="footer-content">
+                <p>&copy; 2023 EAIsearch - 企業情報検索エージェント</p>
+                <p>Powered by Claude 3.7 Sonnet & Google Search API</p>
+            </div>
         </footer>
     </div>
 
     <div id="loading-overlay" class="loading-overlay">
         <div class="loading-spinner"></div>
-        <p>処理中...</p>
+        <p>検索中...</p>
     </div>
 
     <script src="app.js"></script>

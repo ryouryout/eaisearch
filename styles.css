@@ -96,8 +96,28 @@ section {
     box-shadow: var(--shadow-md);
 }
 
-.search-input-container {
-    margin-bottom: 20px;
+.search-container {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.search-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.input-area {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.input-area label {
+    font-weight: 600;
+    color: var(--primary-color);
 }
 
 #company-names {
@@ -118,10 +138,10 @@ section {
     box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.25);
 }
 
-.search-controls {
+.button-group {
     display: flex;
     gap: 15px;
-    margin-top: 15px;
+    flex-wrap: wrap;
 }
 
 .primary-btn, .secondary-btn, .action-btn {
@@ -144,9 +164,14 @@ section {
     color: var(--text-light);
 }
 
-.primary-btn:hover {
+.primary-btn:hover:not([disabled]) {
     background-color: var(--primary-light);
     transform: translateY(-2px);
+}
+
+.primary-btn[disabled] {
+    background-color: var(--text-muted);
+    cursor: not-allowed;
 }
 
 .secondary-btn {
@@ -155,46 +180,41 @@ section {
     border: 1px solid var(--border-color);
 }
 
-.secondary-btn:hover {
+.secondary-btn:hover:not([disabled]) {
     background-color: var(--border-color);
 }
 
-.file-input-container {
-    margin-top: 15px;
+.secondary-btn[disabled] {
+    opacity: 0.6;
+    cursor: not-allowed;
 }
 
-.file-input-label {
+.file-input-wrapper {
+    position: relative;
+    overflow: hidden;
     display: inline-block;
-    padding: 12px 24px;
-    background-color: var(--bg-light);
-    color: var(--text-dark);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
+}
+
+.file-input-wrapper input[type=file] {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
     cursor: pointer;
-    font-weight: 500;
-    transition: background-color var(--transition-fast);
 }
 
-.file-input-label:hover {
-    background-color: var(--border-color);
+/* 進捗エリア */
+.progress-area {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
 }
 
-#csv-input {
-    display: none;
-}
-
-/* 進捗セクション */
-.progress-section {
-    background-color: #fff;
-    padding: 25px;
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-md);
-}
-
-.progress-container h2 {
-    margin-bottom: 15px;
-    font-size: 1.3rem;
-    color: var(--primary-color);
+.progress-label {
+    font-size: 1rem;
+    color: var(--text-muted);
 }
 
 .progress-bar-container {
@@ -202,7 +222,6 @@ section {
     background-color: var(--bg-light);
     border-radius: 100px;
     overflow: hidden;
-    margin-bottom: 15px;
 }
 
 .progress-bar {
@@ -213,12 +232,7 @@ section {
     transition: width 0.3s ease;
 }
 
-.search-status {
-    font-size: 1rem;
-    color: var(--text-muted);
-}
-
-/* ログセクション */
+/* 検索ログのスタイル */
 .log-section {
     background-color: #fff;
     padding: 25px;
@@ -226,13 +240,19 @@ section {
     box-shadow: var(--shadow-md);
 }
 
-.log-container h2 {
-    margin-bottom: 15px;
+.log-container {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.log-container h3 {
+    margin-bottom: 10px;
     font-size: 1.3rem;
     color: var(--primary-color);
 }
 
-.search-log {
+.log-content {
     max-height: 200px;
     overflow-y: auto;
     padding: 15px;
@@ -241,12 +261,25 @@ section {
     font-family: monospace;
     font-size: 0.9rem;
     line-height: 1.5;
+    white-space: pre-wrap;
 }
 
 .log-entry {
     margin-bottom: 8px;
     padding-bottom: 8px;
     border-bottom: 1px dashed var(--border-color);
+}
+
+.log-entry.log-error {
+    color: var(--danger-color);
+}
+
+.log-entry.log-warning {
+    color: var(--warning-color);
+}
+
+.log-entry.log-success {
+    color: var(--success-color);
 }
 
 .log-time {
@@ -263,14 +296,20 @@ section {
     box-shadow: var(--shadow-md);
 }
 
+.results-container {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
 .results-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 20px;
+    margin-bottom: 10px;
 }
 
-.results-header h2 {
+.results-header h3 {
     font-size: 1.3rem;
     color: var(--primary-color);
 }
@@ -278,22 +317,6 @@ section {
 .results-actions {
     display: flex;
     gap: 10px;
-}
-
-.action-btn {
-    padding: 8px 16px;
-    background-color: var(--bg-light);
-    color: var(--text-dark);
-    border: 1px solid var(--border-color);
-}
-
-.action-btn:hover:not([disabled]) {
-    background-color: var(--border-color);
-}
-
-.action-btn[disabled] {
-    opacity: 0.6;
-    cursor: not-allowed;
 }
 
 .table-container {
@@ -330,11 +353,22 @@ section {
 
 /* フッタースタイル */
 footer {
-    text-align: center;
+    background-color: var(--primary-dark);
+    color: var(--text-light);
     padding: 30px 0;
-    color: var(--text-muted);
-    font-size: 0.9rem;
+    text-align: center;
     margin-top: 40px;
+}
+
+.footer-content {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 20px;
+}
+
+footer p {
+    margin: 5px 0;
+    opacity: 0.9;
 }
 
 /* ローディングオーバーレイ */
@@ -345,13 +379,12 @@ footer {
     width: 100%;
     height: 100%;
     background-color: rgba(0, 0, 0, 0.7);
-    display: flex;
+    display: none;
     flex-direction: column;
     justify-content: center;
     align-items: center;
     z-index: 1000;
     color: #fff;
-    display: none;
 }
 
 .loading-spinner {
@@ -367,58 +400,6 @@ footer {
 @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
-}
-
-/* レスポンシブデザイン */
-@media (max-width: 768px) {
-    .search-controls {
-        flex-direction: column;
-    }
-    
-    .primary-btn, .secondary-btn {
-        width: 100%;
-    }
-    
-    .results-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 15px;
-    }
-    
-    .results-actions {
-        width: 100%;
-    }
-    
-    .action-btn {
-        flex: 1;
-    }
-    
-    .logo h1 {
-        font-size: 2rem;
-    }
-}
-
-@media (max-width: 480px) {
-    .container {
-        padding: 0 10px;
-    }
-    
-    .search-section, .progress-section, .log-section, .results-section {
-        padding: 15px;
-    }
-    
-    #results-table th, #results-table td {
-        padding: 8px 10px;
-        font-size: 0.85rem;
-    }
-    
-    .logo i {
-        font-size: 1.5rem;
-    }
-    
-    .logo h1 {
-        font-size: 1.8rem;
-    }
 }
 
 /* APIキー設定ダイアログのスタイル */
@@ -437,9 +418,9 @@ footer {
 
 .api-settings-content {
     background-color: white;
-    padding: 20px;
-    border-radius: 10px;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    padding: 25px;
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
     width: 90%;
     max-width: 500px;
 }
@@ -447,8 +428,53 @@ footer {
 .api-key-warning {
     background-color: #fff3cd;
     color: #856404;
-    padding: 10px 15px;
-    border-radius: 5px;
-    margin-bottom: 15px;
+    padding: 15px;
+    border-radius: var(--radius-sm);
+    margin: 15px 0;
     border: 1px solid #ffeeba;
+}
+
+/* レスポンシブスタイル */
+@media (max-width: 768px) {
+    .button-group {
+        flex-direction: column;
+    }
+    
+    .primary-btn, .secondary-btn {
+        width: 100%;
+    }
+    
+    .results-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 15px;
+    }
+    
+    .results-actions {
+        width: 100%;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+    }
+    
+    .logo h1 {
+        font-size: 2rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .container {
+        padding: 0 10px;
+    }
+    
+    .search-section, .log-section, .results-section {
+        padding: 15px;
+    }
+    
+    .logo i {
+        font-size: 1.5rem;
+    }
+    
+    .logo h1 {
+        font-size: 1.8rem;
+    }
 } 
